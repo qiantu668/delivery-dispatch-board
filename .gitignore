@@ -1,0 +1,6 @@
+# 本地截图与临时文件
+/*.png
+/_*
+*.log
+Thumbs.db
+.DS_Store

@@ -154,7 +154,8 @@
     { keys: ['顾村镇'], lng: 121.4220, lat: 31.3510, radiusLng: 0.05, radiusLat: 0.032 },
     { keys: ['杨行镇'], lng: 121.4450, lat: 31.3880, radiusLng: 0.05, radiusLat: 0.032 },
     { keys: ['罗店镇'], lng: 121.3480, lat: 31.4630, radiusLng: 0.06, radiusLat: 0.04 },
-    { keys: ['金汇镇'], lng: 121.4930, lat: 30.9700, radiusLng: 0.05, radiusLat: 0.032 },
+        { keys: ['沿浦公路2389号12仓3号', '沿浦公路2389号', '沿浦公路 2389 号'], lng: 121.541458, lat: 30.980046, radiusLng: 0, radiusLat: 0 },
+{ keys: ['金汇镇'], lng: 121.4930, lat: 30.9700, radiusLng: 0.05, radiusLat: 0.032 },
     { keys: ['南桥镇'], lng: 121.4600, lat: 30.9180, radiusLng: 0.05, radiusLat: 0.032 },
     { keys: ['泗泾镇'], lng: 121.2540, lat: 31.1110, radiusLng: 0.04, radiusLat: 0.025 },
     { keys: ['华新镇'], lng: 121.2210, lat: 31.2380, radiusLng: 0.05, radiusLat: 0.032 },
@@ -183,6 +184,7 @@
   ];
 
   var KNOWN_PLACES = [
+    { name: '金汇沿浦仓', address: '上海市奉贤区金汇镇沿浦公路2389号12仓3号', lng: 121.541458, lat: 30.980046 },
     { name: '人民广场配送点', address: '上海市黄浦区人民广场', lng: 121.4737, lat: 31.2304 },
     { name: '虹桥枢纽门店', address: '上海市闵行区虹桥路', lng: 121.3270, lat: 31.1979 },
     { name: '陆家嘴收货点', address: '上海市浦东新区陆家嘴环路', lng: 121.4998, lat: 31.2397 },

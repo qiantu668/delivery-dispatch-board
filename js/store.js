@@ -9,6 +9,9 @@
   var LS_SETTINGS = 'dispatch.settings.v1';
   var LS_RESULT = 'dispatch.result.v1';
 
+  var FIXED_START_ADDR = '上海市奉贤区金汇镇沿浦公路2389号12仓3号';
+  var FIXED_START = { lng: 121.541458, lat: 30.980046 };
+
   var DEFAULT_VEHICLES = [
     { id: 'v1', plateNo: '沪A·7G5D2', driverName: '陈师傅', driverPhone: '13800000001', color: '#2563EB' },
     { id: 'v2', plateNo: '沪A·2K8M9', driverName: '林师傅', driverPhone: '13800000002', color: '#0D9488' },
@@ -38,8 +41,8 @@
 
   function defaultSettings() {
     return {
-      startAddr: '',
-      start: null,
+      startAddr: FIXED_START_ADDR,
+      start: { lng: FIXED_START.lng, lat: FIXED_START.lat },
       endAddr: '',
       end: null,
       stopMinutes: 10,
@@ -243,6 +246,15 @@
       result: loadJSON(LS_RESULT, null)
     };
     var stateObj = sanitizeState(raw);
+    var hasFixedStart = stateObj.settings.startAddr === FIXED_START_ADDR &&
+      stateObj.settings.start &&
+      Math.abs(stateObj.settings.start.lng - FIXED_START.lng) < 1e-6 &&
+      Math.abs(stateObj.settings.start.lat - FIXED_START.lat) < 1e-6;
+    if (!hasFixedStart) {
+      stateObj.settings.startAddr = FIXED_START_ADDR;
+      stateObj.settings.start = { lng: FIXED_START.lng, lat: FIXED_START.lat };
+      stateObj.settings.changedAt = Date.now();
+    }
     resequence(stateObj);
 
     if (stateObj.settings.dateKey !== todayKey()) {

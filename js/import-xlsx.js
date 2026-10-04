@@ -289,9 +289,10 @@
   function routeRows(route, state) {
     var taskById = {};
     state.tasks.forEach(function (t) { taskById[t.id] = t; });
+    var roundTrip = !!(state.settings && state.settings.roundTrip);
     var rows = [
       ['车辆', route.plateNo || route.label || '', '司机', route.driverName || '', '电话', route.driverPhone || ''],
-      ['出发', toHHMM(route.startMin), '完工/待命', toHHMM(route.finishMin), '里程(km)', ((route.totalDistanceM || 0) / 1000).toFixed(1), '预计用时(分钟)', route.totalDurationMin || 0]
+      ['出发', toHHMM(route.startMin), roundTrip ? '返回终点' : '完工/待命', toHHMM(route.finishMin), '里程(km)', ((route.totalDistanceM || 0) / 1000).toFixed(1), '预计用时(分钟)', route.totalDurationMin || 0]
     ];
     rows.push(['序号', '店名 / 收货点', '联系电话', '送货地址', '要求送达', '预计到达', '预计离开', '停靠(分钟)', '备注', '冲突']);
     (route.stops || []).forEach(function (s) {
@@ -309,6 +310,9 @@
         s.conflict ? '是' : ''
       ]);
     });
+    if (roundTrip && (route.stops || []).length) {
+      rows.push(['返', '返回终点', '', state.settings.startAddr || '', '', toHHMM(route.finishMin), '', '', '送完返回出发地', '']);
+    }
     return rows;
   }
 
@@ -325,9 +329,10 @@
     var wb = global.XLSX.utils.book_new();
     var used = {};
     var dateStr = todayString();
+    var roundTrip = !!(state.settings && state.settings.roundTrip);
 
     if (!vehicleId) {
-      var summaryRows = [['车牌', '司机', '电话', '站点数', '出发', '完工/待命', '总里程(km)', '预计用时(分钟)', '冲突数']];
+      var summaryRows = [['车牌', '司机', '电话', '站点数', '出发', roundTrip ? '返回终点' : '完工/待命', '总里程(km)', '预计用时(分钟)', '冲突数']];
       routes.forEach(function (r) {
         summaryRows.push([
           r.plateNo || r.label || '',

@@ -308,11 +308,13 @@
     var offlineBusy = dispatchBusy && dispatchBusyMode === 'offline';
     var aiBusy = dispatchBusy && dispatchBusyMode === 'ai';
     return '<section class="panel dispatch-panel">' +
-      '<div class="panel-head"><div class="panel-title">' + icon('route', 'panel-ico') + '<div><h2>出车设置</h2><p>' + (s.start ? '起点已定位' : '起点未定位') + ' · 送完原地待命</p></div></div></div>' +
+      '<div class="panel-head"><div class="panel-title">' + icon('route', 'panel-ico') + '<div><h2>出车设置</h2><p>' + (s.start ? '起点已定位' : '起点未定位') + ' · ' + (s.roundTrip ? '送完返回终点' : '送完原地待命') + '</p></div></div></div>' +
       '<div class="panel-body">' +
         '<div class="field-grid">' +
           locField('start', '出发地', s.startAddr, !!s.start) +
         '</div>' +
+        '<label class="switch-row"><input type="checkbox" data-settings-key="roundTrip"' + (s.roundTrip ? ' checked' : '') + '><span class="switch-ui"></span><span class="switch-label">送完返回终点</span></label>' +
+        '<p class="settings-note">开启后车辆送完最后一站返回出发地（终点）；关闭则就近原地待命。</p>' +
         '<div class="field-row two">' +
           '<div class="field"><label class="tf-label" for="stop-minutes">停靠分钟</label>' +
             '<input id="stop-minutes" class="input" type="number" min="1" max="120" data-settings-key="stopMinutes" value="' + esc(s.stopMinutes) + '"></div>' +
@@ -405,6 +407,13 @@
         nav +
       '</div>';
     }).join('');
+    if (state.settings.roundTrip && (r.stops || []).length) {
+      stopsHtml += '<div class="stop-row is-return">' +
+        '<span class="stop-order" style="--sc:' + esc(r.color) + '">返</span>' +
+        '<div class="stop-main"><strong>返回终点</strong><span class="stop-addr">' + esc(state.settings.startAddr || '出发地') + '</span></div>' +
+        '<div class="stop-time"><span class="eta">' + esc(Planning.toHHMM(r.finishMin)) + '</span></div>' +
+      '</div>';
+    }
     return '<section class="panel driver-route">' +
       '<div class="route-head">' +
         '<span class="route-color" style="background:' + esc(r.color) + '"></span>' +
@@ -699,6 +708,8 @@
     var result = state.result;
     var start = state.settings.start;
     if (!result || !start) return null;
+    var roundTrip = !!state.settings.roundTrip;
+    var end = roundTrip ? { lng: start.lng, lat: start.lat } : null;
     var routes = result.routes.map(function (r) {
       var stops = (r.stops || []).map(function (s) {
         var t = taskById(state, s.taskId) || {};
@@ -714,6 +725,7 @@
         var pts = [start].concat(stops.map(function (s) {
           return { lng: s.lng, lat: s.lat };
         }));
+        if (end && end.lng != null && end.lat != null) pts.push({ lng: end.lng, lat: end.lat });
         var legs = Geo.demoLegs(pts);
         var waypoints = [];
         legs.forEach(function (leg) {
@@ -729,7 +741,7 @@
       }
       return out;
     });
-    return { start: start, end: null, routes: routes };
+    return { start: start, end: end, routes: routes };
   }
 
   function parseViewBox(svg) {
@@ -1457,7 +1469,8 @@
         target.type === 'checkbox' ? target.checked
         : (target.type === 'number' ? Number(target.value) : target.value);
       Store.updateSettings(sp);
-      if (target.getAttribute('data-settings-key') === 'balanceLevel') scheduleBalanceRerun();
+      var settingsKey = target.getAttribute('data-settings-key');
+      if (settingsKey === 'balanceLevel' || settingsKey === 'roundTrip') scheduleBalanceRerun();
       return;
     }
     if (target.matches('[data-active-vehicle]')) {
@@ -1623,12 +1636,15 @@
           deadlineMin: Planning.minutes(t.deadline)
         };
       });
+      var roundTrip = !!latest.settings.roundTrip;
+      var end = roundTrip ? { lng: start.lng, lat: start.lat } : null;
       return {
         latest: latest,
         settings: latest.settings,
         vehicles: vehicles,
         start: start,
-        end: null,
+        end: end,
+        roundTrip: roundTrip,
         planTasks: planTasks
       };
     });
@@ -1642,10 +1658,14 @@
 
   function routePoints(ctx, route) {
     var taskMap = planTaskMap(ctx.planTasks);
-    return [ctx.start].concat((route.stops || []).map(function (s) {
+    var pts = [ctx.start].concat((route.stops || []).map(function (s) {
       var t = taskMap[s.taskId];
       return t ? { lng: t.lng, lat: t.lat } : null;
     }).filter(Boolean));
+    if (ctx.end && ctx.end.lng != null && ctx.end.lat != null) {
+      pts.push({ lng: ctx.end.lng, lat: ctx.end.lat });
+    }
+    return pts;
   }
 
   function attachDisplayLegs(routes, ctx) {
@@ -1862,7 +1882,8 @@
         defaultStartMin: startMin,
         stopMinutes: ctx.settings.stopMinutes,
         start: ctx.start,
-        end: null,
+        end: ctx.end,
+        roundTrip: ctx.roundTrip,
         vehicles: ctx.vehicles,
         tasks: ctx.planTasks,
         currentRoutes: chatCurrentRoutes(Store.getState()),

@@ -704,7 +704,10 @@
       var stops = [];
       var cur = start;
       legs.forEach(function (leg, idx) {
-        if (idx >= routeTasks.length) return;
+        if (idx >= routeTasks.length) {
+          cur += leg.durationMin;
+          return;
+        }
         var task = routeTasks[idx];
         var arrival = cur + leg.durationMin;
         stops.push({

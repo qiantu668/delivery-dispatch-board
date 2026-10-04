@@ -1259,6 +1259,10 @@ textarea.import-input {
   padding: 14px 0;
 }
 
+.driver-stops .stop-row.is-return {
+  border-top: 1px dashed var(--line);
+}
+
 .result-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

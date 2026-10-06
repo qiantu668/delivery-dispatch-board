@@ -379,42 +379,132 @@
     }));
   }
 
+  function normalizeAddressText(address) {
+    return String(address || '')
+      .replace(/[\u3000\r\n\t]+/g, ' ')
+      .replace(/^\s*(地址|送货地址|收货地址)\s*[:：]\s*/i, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[，,]+/g, ' ')
+      .trim();
+  }
+
+  function addressCandidates(address) {
+    var raw = String(address || '').trim();
+    var normalized = normalizeAddressText(raw);
+    var candidates = [];
+    function add(value) {
+      value = String(value || '').trim();
+      if (value && candidates.indexOf(value) < 0) candidates.push(value);
+    }
+    add(raw);
+    add(normalized);
+    if (/上海(市)?/.test(normalized) && !/^上海市/.test(normalized)) {
+      add('上海市' + normalized.replace(/^上海/, ''));
+    }
+    if (/上海市|上海/.test(normalized) && /区|县/.test(normalized)) {
+      add(normalized.replace(/[（(][^）)]*[）)]/g, ''));
+    }
+    return candidates.slice(0, 4);
+  }
+
+  function formatAmapLocation(location) {
+    if (!location) return null;
+    var lng = Number(location.lng);
+    var lat = Number(location.lat);
+    if (!isFinite(lng) || !isFinite(lat)) return null;
+    return { lng: lng, lat: lat };
+  }
+
+  function geocodeWithAmap(address) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error('timeout'));
+      }, AMAP_GEOCODE_TIMEOUT);
+      try {
+        var geocoder = new AMap.Geocoder({ city: '全国' });
+        geocoder.getLocation(address, function (status, result) {
+          if (settled) return;
+          clearTimeout(timer);
+          settled = true;
+          if (status === 'complete' && result && result.geocodes && result.geocodes.length) {
+            var g = result.geocodes[0];
+            var point = formatAmapLocation(g.location);
+            if (point) {
+              point.formatted = g.formattedAddress || address;
+              resolve(point);
+              return;
+            }
+          }
+          reject(new Error(result && (result.info || result.message) || 'not_found'));
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      }
+    });
+  }
+
+  function searchAmapPoi(address) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error('timeout'));
+      }, AMAP_GEOCODE_TIMEOUT);
+      try {
+        var search = new AMap.PlaceSearch({ city: '全国', pageSize: 10 });
+        search.search(address, function (status, result) {
+          if (settled) return;
+          clearTimeout(timer);
+          settled = true;
+          var pois = result && result.poiList && result.poiList.pois || [];
+          for (var i = 0; i < pois.length; i += 1) {
+            var point = formatAmapLocation(pois[i].location);
+            if (point) {
+              point.formatted = pois[i].address || pois[i].name || address;
+              resolve(point);
+              return;
+            }
+          }
+          reject(new Error(status === 'complete' ? 'not_found' : 'search_failed'));
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      }
+    });
+  }
+
   function geocode(address) {
     address = (address || '').trim();
     if (!address) return Promise.reject(new Error('地址为空'));
 
     if (service.mode === 'amap') {
-      return new Promise(function (resolve, reject) {
-        var settled = false;
-        try {
-          var geocoder = new AMap.Geocoder({ city: '全国' });
-          var timer = setTimeout(function () {
-            if (settled) return;
-            settled = true;
-            reject(new Error('高德地址解析超时：' + address));
-          }, AMAP_GEOCODE_TIMEOUT);
-          geocoder.getLocation(address, function (status, result) {
-            if (settled) return;
-            clearTimeout(timer);
-            if (status === 'complete' && result.geocodes && result.geocodes.length) {
-              settled = true;
-              var g = result.geocodes[0];
-              resolve({
-                lng: g.location.lng,
-                lat: g.location.lat,
-                formatted: g.formattedAddress || address
-              });
-            } else {
-              settled = true;
-              var info = result && (result.info || result.message);
-              reject(new Error('高德未找到地址：' + address + (info ? '（' + info + '）' : '')));
-            }
+      var candidates = addressCandidates(address);
+      var lastError = '';
+      var tryGeocoder = function (index) {
+        if (index >= candidates.length) {
+          return searchAmapPoi(candidates[0]).catch(function (err) {
+            var detail = lastError || (err && err.message) || '未找到';
+            throw new Error('高德未找到地址：' + address + '（' + detail + '）');
           });
-        } catch (e) {
-          settled = true;
-          reject(new Error('高德地址解析调用失败：' + (e && e.message ? e.message : '未知错误')));
         }
-      });
+        return geocodeWithAmap(candidates[index]).catch(function (err) {
+          lastError = err && err.message ? err.message : '解析失败';
+          return tryGeocoder(index + 1);
+        });
+      };
+      return tryGeocoder(0);
     }
 
     var known = KNOWN_PLACES.find(function (p) {

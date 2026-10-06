@@ -8,6 +8,7 @@
   var routeRebuildToken = 0;
   var balanceRerunTimer = null;
   var amapAutoConnectStarted = false;
+  var locateAllBusy = false;
   var AI_CHAT_LS = 'dispatch.aichat.v1';
   var aiChat = loadAiChat();
 
@@ -257,6 +258,7 @@
           '<button type="button" class="btn btn-ghost" data-action="load-demo">' + icon('sparkles', 'btn-ico') + '加载示例</button>' +
           '<button type="button" class="btn btn-ghost" data-action="export-json">' + icon('download', 'btn-ico') + '导出</button>' +
           '<button type="button" class="btn btn-ghost" data-action="import">' + icon('upload', 'btn-ico') + '导入</button>' +
+          '<button type="button" class="btn btn-ghost" data-action="locate-all"' + (locateAllBusy ? ' disabled' : '') + '>' + icon('map-pin', 'btn-ico') + (locateAllBusy ? '定位中...' : '一键定位') + '</button>' +
           '<button type="button" class="btn btn-danger-ghost" data-action="clear-tasks">' + icon('trash-2', 'btn-ico') + '清空</button>' +
           '<button type="button" class="btn btn-primary" data-action="add-task">' + icon('plus', 'btn-ico') + '新增任务</button>' +
         '</div></div>' +
@@ -1580,6 +1582,68 @@
     });
   }
 
+  function handleLocateAll() {
+    if (locateAllBusy) return;
+    var state = Store.getState();
+    var pending = (state.tasks || []).filter(function (task) {
+      return task.lng == null || task.lat == null;
+    });
+    if (!pending.length) {
+      toast('全部地址已经定位，可以开始派车', 'success');
+      return;
+    }
+    if (!Geo.isAmap()) {
+      toast('请先在设置中连接高德服务，再使用一键定位', 'warn');
+      return;
+    }
+
+    locateAllBusy = true;
+    renderApp();
+    var success = [];
+    var failed = [];
+    var cursor = 0;
+
+    function worker() {
+      var task = pending[cursor++];
+      if (!task) return Promise.resolve();
+      var address = (task.address || '').trim();
+      if (!address) {
+        failed.push({ task: task, message: '缺少地址' });
+        return worker();
+      }
+      return Geo.geocode(address).then(function (loc) {
+        Store.updateTask(task.id, {
+          address: loc.formatted || address,
+          lng: loc.lng,
+          lat: loc.lat
+        });
+        success.push(task);
+      }).catch(function (err) {
+        failed.push({
+          task: task,
+          message: err && err.message ? err.message : '高德未返回坐标'
+        });
+      }).then(worker);
+    }
+
+    var workers = [];
+    var count = Math.min(3, pending.length);
+    for (var i = 0; i < count; i += 1) workers.push(worker());
+    Promise.all(workers).then(function () {
+      locateAllBusy = false;
+      renderApp();
+      if (!failed.length) {
+        toast('一键定位完成：成功定位 ' + success.length + ' 个地址', 'success');
+        return;
+      }
+      var names = failed.slice(0, 4).map(function (item) {
+        return item.task.shopName || ('任务' + (item.task.seq || ''));
+      }).join('、');
+      if (failed.length > 4) names += ' 等';
+      toast('已定位 ' + success.length + ' 个，' + failed.length + ' 个失败：' + names + '。请手动修正后再派车', 'warn');
+    });
+  }
+
   function handleLocateSetting(btn) {
     var key = btn.getAttribute('data-loc-key');
     var wrap = btn.closest('.ac-wrap');
@@ -1646,18 +1710,13 @@
       });
     }
     return chain.then(function () {
-      var queue = tasks.filter(function (t) { return t.lng == null || t.lat == null; });
-      return queue.reduce(function (p, t) {
-        return p.then(function () {
-          if (!(t.address || '').trim()) throw new Error('任务「' + (t.shopName || t.id) + '」缺少地址');
-          return Geo.geocode(t.address).then(function (loc) {
-            t.lng = loc.lng;
-            t.lat = loc.lat;
-            t.address = loc.formatted || t.address;
-            Store.updateTask(t.id, { lng: t.lng, lat: t.lat, address: t.address });
-          });
-        });
-      }, Promise.resolve());
+      var unlocated = tasks.filter(function (t) { return t.lng == null || t.lat == null; });
+      if (!unlocated.length) return;
+      var names = unlocated.slice(0, 5).map(function (t) {
+        return '「' + (t.shopName || ('任务' + (t.seq || ''))) + '」';
+      }).join('、');
+      if (unlocated.length > 5) names += ' 等';
+      throw new Error('有 ' + unlocated.length + ' 个地址尚未定位：' + names + '。请先点击“一键定位”，修正失败地址后再派车');
     }).then(function () {
       var latest = Store.getState();
       var vehicles = activeVehicles(latest);
@@ -2127,6 +2186,8 @@
       handleExportRoutesExcel(actionEl.getAttribute('data-vehicle-id'));
     } else if (action === 'import') {
       handleImport();
+    } else if (action === 'locate-all') {
+      handleLocateAll();
     } else if (action === 'dispatch') {
       handleDispatch();
     } else if (action === 'ai-dispatch') {

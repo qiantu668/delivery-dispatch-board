@@ -7,6 +7,7 @@
   var focusTaskId = null;
   var routeRebuildToken = 0;
   var balanceRerunTimer = null;
+  var amapAutoConnectStarted = false;
   var AI_CHAT_LS = 'dispatch.aichat.v1';
   var aiChat = loadAiChat();
 
@@ -93,6 +94,23 @@
       try { amapMapHandle.destroy(); } catch (e) { /* ignore */ }
       amapMapHandle = null;
     }
+  }
+
+  function connectSavedAmapKey() {
+    if (amapAutoConnectStarted) return;
+    amapAutoConnectStarted = true;
+    var settings = Store.getState().settings || {};
+    var key = String(settings.amapKey || '').trim();
+    if (!key) return;
+
+    // 读取本机保存的凭据；失败时 Geo 保持离线模式，不阻塞页面使用。
+    Geo.setKey(key, String(settings.amapSecurityCode || '').trim())
+      .then(function () {
+        renderApp();
+      })
+      .catch(function () {
+        renderApp();
+      });
   }
 
   function confirmDialog(message, onOk, okLabel) {
@@ -568,6 +586,10 @@
       '<div class="route-load-head"><span>单程负载</span><b>' + fmtDuration(loadMin) + ' - ' + fmtDuration(loadMax) + '</b></div>' +
       '<div class="route-load-track" aria-label="各车辆单程用时占比">' + loadBars + '</div>' +
     '</div>';
+    var mapMode = Geo.status();
+    var mapModeLabel = mapMode.mode === 'amap' ? '高德地图'
+      : mapMode.loading ? '地图连接中（离线底图）'
+      : '上海离线路网';
     return head +
       (stale ? '<div class="stale-banner">' + icon('refresh-cw', 'banner-ico') + '<span>任务或车辆有变动，建议重新派车</span></div>' : '') +
       '<div class="result-summary">' +
@@ -580,7 +602,7 @@
       loadHtml +
       '<div class="route-list">' + result.routes.map(function (r) { return routeCard(state, r); }).join('') + '</div>' +
       '<div class="map-head"><div class="map-title"><h3>路线图</h3>' +
-        '<span class="mode-chip">上海离线路网</span>' +
+        '<span class="mode-chip">' + esc(mapModeLabel) + '</span>' +
       '</div><button type="button" class="btn btn-ghost btn-sm map-expand-btn" data-action="expand-map" title="放大查看路线图">' +
         icon('maximize-2', 'btn-ico') + '放大查看' +
       '</button>' +
@@ -721,27 +743,45 @@
         });
       }).filter(function (s) { return s.lng != null && s.lat != null; });
       var out = Object.assign({}, r, { stops: stops });
-      if (!out.waypoints || !out.waypoints.length) {
+      var legs = out.legs && out.legs.length ? out.legs : null;
+      if (!legs) {
         var pts = [start].concat(stops.map(function (s) {
           return { lng: s.lng, lat: s.lat };
         }));
         if (end && end.lng != null && end.lat != null) pts.push({ lng: end.lng, lat: end.lat });
-        var legs = Geo.demoLegs(pts);
-        var waypoints = [];
-        legs.forEach(function (leg) {
-          leg.path.forEach(function (p) {
-            var last = waypoints[waypoints.length - 1];
-            if (!last || Math.abs(last.lng - p.lng) > 1e-9 || Math.abs(last.lat - p.lat) > 1e-9) {
-              waypoints.push(p);
-            }
-          });
-        });
-        out.legs = legs;
-        out.waypoints = waypoints;
+        legs = Geo.demoLegs(pts);
       }
+      var waypoints = [];
+      legs.forEach(function (leg) {
+        (leg.path || []).forEach(function (p) {
+          var last = waypoints[waypoints.length - 1];
+          if (!last || Math.abs(last.lng - p.lng) > 1e-9 || Math.abs(last.lat - p.lat) > 1e-9) {
+            waypoints.push(p);
+          }
+        });
+      });
+      out.legs = legs;
+      out.waypoints = waypoints;
       return out;
     });
     return { start: start, end: end, routes: routes };
+  }
+
+  function renderMapHost(host, data, expanded) {
+    if (!host || !data) return;
+    var handle = null;
+    if (Geo.isAmap()) {
+      try {
+        handle = Geo.renderAmapMap(host, data);
+      } catch (err) {
+        // 高德地图对象创建失败时回退到可用的离线路线图。
+        handle = null;
+      }
+    }
+    if (expanded) expandedMapHandle = handle;
+    else amapMapHandle = handle;
+    if (!handle) Geo.renderDemoMap(host, data);
+    attachMapZoom(host, handle);
   }
 
   function parseViewBox(svg) {
@@ -859,8 +899,7 @@
     if (!host) return;
     var data = buildMapData(Store.getState());
     if (!data) return;
-    Geo.renderDemoMap(host, data);
-    attachMapZoom(host, amapMapHandle);
+    renderMapHost(host, data, false);
   }
 
   function handleExpandMap() {
@@ -875,8 +914,7 @@
     );
     var host = $('#map-expanded-host');
     if (!host) return;
-    Geo.renderDemoMap(host, data);
-    attachMapZoom(host, expandedMapHandle);
+    renderMapHost(host, data, true);
   }
 
   function assignedTaskIds(result) {
@@ -2151,5 +2189,6 @@
     }
   });
 
+  connectSavedAmapKey();
   renderApp();
 })(window);

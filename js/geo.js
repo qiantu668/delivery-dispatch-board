@@ -5,6 +5,8 @@
   var ROAD_FACTOR = 1.42;
   var AVG_SPEED = 24;
   var OFFLINE_TIME_BUFFER = 1.2;
+  var AMAP_GEOCODE_TIMEOUT = 15000;
+  var AMAP_ROUTE_TIMEOUT = 20000;
   var DEMO_CENTER = { lng: 121.47, lat: 31.23 };
   var OFFLINE_MAP_LAYERS = [
     {
@@ -383,14 +385,19 @@
 
     if (service.mode === 'amap') {
       return new Promise(function (resolve, reject) {
+        var settled = false;
         try {
           var geocoder = new AMap.Geocoder({ city: '全国' });
           var timer = setTimeout(function () {
-            reject(new Error('高德地址解析超时，请检查Key或安全密钥'));
-          }, 15000);
+            if (settled) return;
+            settled = true;
+            reject(new Error('高德地址解析超时：' + address));
+          }, AMAP_GEOCODE_TIMEOUT);
           geocoder.getLocation(address, function (status, result) {
+            if (settled) return;
             clearTimeout(timer);
             if (status === 'complete' && result.geocodes && result.geocodes.length) {
+              settled = true;
               var g = result.geocodes[0];
               resolve({
                 lng: g.location.lng,
@@ -398,11 +405,14 @@
                 formatted: g.formattedAddress || address
               });
             } else {
-              reject(new Error('未找到该地址'));
+              settled = true;
+              var info = result && (result.info || result.message);
+              reject(new Error('高德未找到地址：' + address + (info ? '（' + info + '）' : '')));
             }
           });
         } catch (e) {
-          reject(new Error('高德地理编码调用失败'));
+          settled = true;
+          reject(new Error('高德地址解析调用失败：' + (e && e.message ? e.message : '未知错误')));
         }
       });
     }
@@ -477,19 +487,19 @@
 
   function routeLegsAmap(points) {
     if (!Array.isArray(points) || points.length < 2) return Promise.resolve([]);
-    var results = [];
-    var driver = new AMap.Driving({ policy: AMap.DrivingPolicy.LEAST_TIME, showTraffic: true });
-
-    function searchLeg(i) {
-      if (i >= points.length - 1) return Promise.resolve(results);
-      return new Promise(function (resolve, reject) {
+    var searches = [];
+    for (var i = 0; i < points.length - 1; i += 1) {
+      (function (fromPoint, toPoint, legIndex) {
+        searches.push(new Promise(function (resolve, reject) {
         var settled = false;
-        var from = new AMap.LngLat(points[i].lng, points[i].lat);
-        var to = new AMap.LngLat(points[i + 1].lng, points[i + 1].lat);
+        var driver = new AMap.Driving({ policy: AMap.DrivingPolicy.LEAST_TIME, showTraffic: true });
+        var from = new AMap.LngLat(fromPoint.lng, fromPoint.lat);
+        var to = new AMap.LngLat(toPoint.lng, toPoint.lat);
         var timer = setTimeout(function () {
+          if (settled) return;
           settled = true;
-          reject(new Error('高德路径规划超时，请检查Key或安全密钥'));
-        }, 20000);
+          reject(new Error('高德路径规划超时：第 ' + (legIndex + 1) + ' 段'));
+        }, AMAP_ROUTE_TIMEOUT);
         driver.search(from, to, function (status, result) {
           if (settled) return;
           settled = true;
@@ -500,20 +510,27 @@
             route.steps.forEach(function (step) {
               path = path.concat(step.path || []);
             });
-            results.push({
+            resolve({
+              index: legIndex,
               distanceM: route.distance,
               durationMin: Math.max(1, Math.round(route.time / 60)),
               path: path.map(function (p) { return { lng: p.lng, lat: p.lat }; })
             });
           } else {
-            results.push(routeLegsDemo([points[i], points[i + 1]])[0]);
+            var info = result && (result.info || result.message);
+            reject(new Error('高德路径规划失败：第 ' + (legIndex + 1) + ' 段' + (info ? '（' + info + '）' : '')));
           }
-          resolve(searchLeg(i + 1));
         });
-      });
+        }));
+      }(points[i], points[i + 1], i));
     }
 
-    return searchLeg(0);
+    return Promise.all(searches).then(function (legs) {
+      return legs.sort(function (a, b) { return a.index - b.index; }).map(function (leg) {
+        delete leg.index;
+        return leg;
+      });
+    });
   }
 
   function routeLegsDemo(points) {

@@ -822,7 +822,6 @@
     var map = new AMap.Map(el, {
       zoom: 12,
       center: [data.start.lng, data.start.lat],
-      mapStyle: 'amap://styles/whitesmoke',
       resizeEnable: true
     });
     var overlays = [];

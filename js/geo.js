@@ -397,6 +397,12 @@
     return t.trim();
   }
 
+  function dedupeRepeatedRoads(text) {
+    var t = String(text || '');
+    t = t.replace(/([\u4e00-\u9fa5]{1,12}(?:路|街|大道|大街|弄|巷|道))\s*\1/g, '$1');
+    return t;
+  }
+
   function removeParenthesisNotes(text) {
     var t = String(text || '');
     for (var i = 0; i < 3; i += 1) {
@@ -411,6 +417,7 @@
     var t = String(text || '').trim();
     if (!t) return '';
     t = dedupeShanghaiPrefix(t);
+    t = dedupeRepeatedRoads(t);
     t = removeParenthesisNotes(t);
     t = t.replace(/[，,、]/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
@@ -436,6 +443,7 @@
     var t = String(address || '').trim();
     if (!t) return '';
     t = dedupeShanghaiPrefix(t);
+    t = dedupeRepeatedRoads(t);
     t = removeParenthesisNotes(t);
     t = t.replace(/[，,、]/g, ' ').replace(/\s{2,}/g, ' ').trim();
     return t;
@@ -493,6 +501,8 @@
             var point = formatAmapLocation(g.location);
             if (point) {
               point.formatted = g.formattedAddress || address;
+              point.level = g.level || '';
+              point.district = (g.addressComponent && g.addressComponent.district) || '';
               resolve(point);
               return;
             }
@@ -528,6 +538,8 @@
             var point = formatAmapLocation(pois[i].location);
             if (point) {
               point.formatted = pois[i].address || pois[i].name || address;
+              point.level = '兴趣点';
+              point.district = pois[i].adname || '';
               resolve(point);
               return;
             }

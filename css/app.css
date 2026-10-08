@@ -922,6 +922,11 @@ textarea.import-input {
   color: var(--ink-3);
 }
 
+.loc-chip.is-warn {
+  background: #FEF3C7;
+  color: #B45309;
+}
+
 .loc-chip.is-missing {
   background: var(--danger-weak);
   color: var(--danger);

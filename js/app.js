@@ -222,8 +222,10 @@
 
   function taskRow(task) {
     var missingAddress = (task.lng == null || task.lat == null) && !(task.address || '').trim();
-    var locClass = task.lng != null ? 'loc-chip is-ok' : (missingAddress ? 'loc-chip is-empty is-missing' : 'loc-chip is-empty');
-    var locText = task.lng != null ? '已定位' : (missingAddress ? '缺地址' : '未定位');
+    var coarseLevels = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'];
+    var coarse = task.lng != null && coarseLevels.indexOf(task.locLevel) >= 0;
+    var locClass = task.lng != null ? (coarse ? 'loc-chip is-warn' : 'loc-chip is-ok') : (missingAddress ? 'loc-chip is-empty is-missing' : 'loc-chip is-empty');
+    var locText = task.lng != null ? (coarse ? '粗略定位，请核对' : '已定位') : (missingAddress ? '缺地址' : '未定位');
     var seq = String(task.seq || '?').padStart(2, '0');
     return '<div class="task-card' + (missingAddress ? ' is-missing-address' : '') + '" data-task-id="' + esc(task.id) + '">' +
       '<div class="task-grid">' +
@@ -1486,6 +1488,8 @@
         if (!currentTask || target.value !== currentTask.address) {
           patch.lng = null;
           patch.lat = null;
+          patch.locLevel = '';
+          patch.locSource = '';
         }
       }
       Store.updateTask(card.getAttribute('data-task-id'), patch);
@@ -1573,8 +1577,9 @@
     btn.disabled = true;
     btn.classList.add('is-loading');
     Geo.geocode(address).then(function (loc) {
-      Store.updateTask(id, { address: loc.formatted || address, lng: loc.lng, lat: loc.lat });
-      toast('定位成功', 'success');
+      Store.updateTask(id, { lng: loc.lng, lat: loc.lat, locLevel: loc.level || '', locSource: 'amap' });
+      var coarse = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(loc.level) >= 0;
+      toast(coarse ? '定位成功，但只到道路/区域级，建议核对' : '定位成功', coarse ? 'warn' : 'success');
     }).catch(function (err) {
       btn.disabled = false;
       btn.classList.remove('is-loading');
@@ -1613,11 +1618,12 @@
       }
       return Geo.geocode(address).then(function (loc) {
         Store.updateTask(task.id, {
-          address: loc.formatted || address,
           lng: loc.lng,
-          lat: loc.lat
+          lat: loc.lat,
+          locLevel: loc.level || '',
+          locSource: 'amap'
         });
-        success.push(task);
+        success.push({ task: task, level: loc.level || '' });
       }).catch(function (err) {
         failed.push({
           task: task,
@@ -1632,15 +1638,18 @@
     Promise.all(workers).then(function () {
       locateAllBusy = false;
       renderApp();
+      var coarseCount = success.filter(function (item) {
+        return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(item.level) >= 0;
+      }).length;
       if (!failed.length) {
-        toast('一键定位完成：成功定位 ' + success.length + ' 个地址', 'success');
+        toast('一键定位完成：成功 ' + success.length + ' 个' + (coarseCount ? '，其中 ' + coarseCount + ' 个仅道路/区域级，请核对' : ''), coarseCount ? 'warn' : 'success');
         return;
       }
       var names = failed.slice(0, 4).map(function (item) {
         return item.task.shopName || ('任务' + (item.task.seq || ''));
       }).join('、');
       if (failed.length > 4) names += ' 等';
-      toast('已定位 ' + success.length + ' 个，' + failed.length + ' 个失败：' + names + '。请手动修正后再派车', 'warn');
+      toast('已定位 ' + success.length + ' 个' + (coarseCount ? '（' + coarseCount + ' 个粗略）' : '') + '，' + failed.length + ' 个失败：' + names + '。请修正后再派车', 'warn');
     });
   }
 

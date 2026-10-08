@@ -126,6 +126,8 @@
       address: sanitizeText(raw.address, 160),
       lng: hasLoc ? Math.round(lng * 1e6) / 1e6 : null,
       lat: hasLoc ? Math.round(lat * 1e6) / 1e6 : null,
+      locLevel: sanitizeText(raw.locLevel, 20),
+      locSource: sanitizeText(raw.locSource, 20),
       deadline: sanitizeText(raw.deadline, 5),
       note: sanitizeText(raw.note, 120)
     };
@@ -319,6 +321,8 @@
           address: '',
           lng: null,
           lat: null,
+          locLevel: '',
+          locSource: '',
           deadline: '',
           note: ''
         }, data);

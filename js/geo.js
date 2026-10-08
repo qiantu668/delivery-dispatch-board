@@ -388,23 +388,82 @@
       .trim();
   }
 
+
+  function dedupeShanghaiPrefix(text) {
+    var t = String(text || '').trim();
+    t = t.replace(/上海市\s*上海市/g, '上海市');
+    t = t.replace(/上海\s*上海市/g, '上海市');
+    t = t.replace(/上海市\s*上海/g, '上海市');
+    return t.trim();
+  }
+
+  function removeParenthesisNotes(text) {
+    var t = String(text || '');
+    for (var i = 0; i < 3; i += 1) {
+      var prev = t;
+      t = t.replace(/[（(][^）)]*[）)]/g, ' ');
+      if (t === prev) break;
+    }
+    return t.replace(/\s{2,}/g, ' ').trim();
+  }
+
+  function extractRoadAddress(text) {
+    var t = String(text || '').trim();
+    if (!t) return '';
+    t = dedupeShanghaiPrefix(t);
+    t = removeParenthesisNotes(t);
+    t = t.replace(/[，,、]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+    var m = t.match(/(上海市|上海)[^号弄幢栋楼室]{0,60}?(?:\d+号|\d+弄|\d+幢|\d+栋|\d+楼|\d+室)/);
+    if (m) return m[0].replace(/\s{2,}/g, ' ').trim();
+
+    m = t.match(/[^ ]{1,15}(?:区|县)[^号弄幢栋楼室]{0,60}?(?:\d+号|\d+弄|\d+幢|\d+栋|\d+楼|\d+室)/);
+    if (m) return m[0].replace(/\s{2,}/g, ' ').trim();
+
+    m = t.match(/[^ ]{1,20}(?:路|街|大道|大街|弄|巷|道)\s*\d+号?/);
+    if (m) {
+      var roadPart = m[0];
+      var idx = t.indexOf(roadPart);
+      var prefix = t.slice(0, idx);
+      var district = prefix.match(/[^ ]{1,15}(?:区|县)/);
+      return (district ? district[0] : '') + roadPart;
+    }
+
+    return t;
+  }
+
+  function cleanAddressForGeocode(address) {
+    var t = String(address || '').trim();
+    if (!t) return '';
+    t = dedupeShanghaiPrefix(t);
+    t = removeParenthesisNotes(t);
+    t = t.replace(/[，,、]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    return t;
+  }
   function addressCandidates(address) {
     var raw = String(address || '').trim();
     var normalized = normalizeAddressText(raw);
+    var cleaned = cleanAddressForGeocode(raw);
+    var roadExtract = extractRoadAddress(raw);
     var candidates = [];
     function add(value) {
       value = String(value || '').trim();
       if (value && candidates.indexOf(value) < 0) candidates.push(value);
     }
+    add(roadExtract);
+    add(cleaned);
     add(raw);
     add(normalized);
-    if (/上海(市)?/.test(normalized) && !/^上海市/.test(normalized)) {
-      add('上海市' + normalized.replace(/^上海/, ''));
-    }
-    if (/上海市|上海/.test(normalized) && /区|县/.test(normalized)) {
-      add(normalized.replace(/[（(][^）)]*[）)]/g, ''));
-    }
-    return candidates.slice(0, 4);
+    var all = candidates.slice();
+    all.forEach(function (c) {
+      if (/上海(市)?/.test(c) && !/^上海市/.test(c)) {
+        add('上海市' + c.replace(/^上海/, ''));
+      }
+      if (!/^上海市/.test(c) && !/^(上海|江苏|浙江|北京|天津|重庆|广州|深圳|苏州|昆山|太仓|常熟|无锡|常州|南通|嘉兴|湖州|杭州|南京|宁波|绍兴|扬州|泰州|镇江|盐城|淮安|连云港|徐州|宿迁)/.test(c)) {
+        add('上海市' + c);
+      }
+    });
+    return candidates.slice(0, 5);
   }
 
   function formatAmapLocation(location) {

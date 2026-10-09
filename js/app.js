@@ -1718,14 +1718,50 @@
         Store.updateSettings({ startAddr: loc.formatted || settings.startAddr, start: start });
       });
     }
-    return chain.then(function () {
+        return chain.then(function () {
       var unlocated = tasks.filter(function (t) { return t.lng == null || t.lat == null; });
       if (!unlocated.length) return;
-      var names = unlocated.slice(0, 5).map(function (t) {
-        return '「' + (t.shopName || ('任务' + (t.seq || ''))) + '」';
-      }).join('、');
-      if (unlocated.length > 5) names += ' 等';
-      throw new Error('有 ' + unlocated.length + ' 个地址尚未定位：' + names + '。请先点击“一键定位”，修正失败地址后再派车');
+      var cursor = 0;
+      var success = [];
+      var failed = [];
+      function worker() {
+        var task = unlocated[cursor++];
+        if (!task) return Promise.resolve();
+        var address = (task.address || '').trim();
+        if (!address) {
+          failed.push({ task: task, message: '缺少地址' });
+          return worker();
+        }
+        return Geo.geocode(address).then(function (loc) {
+          task.lng = loc.lng;
+          task.lat = loc.lat;
+          task.locLevel = loc.level || '';
+          task.locSource = 'amap';
+          Store.updateTask(task.id, { lng: task.lng, lat: task.lat, locLevel: task.locLevel, locSource: task.locSource });
+          success.push({ task: task, level: loc.level || '' });
+        }).catch(function (err) {
+          failed.push({ task: task, message: err && err.message ? err.message : '高德未返回坐标' });
+        }).then(worker);
+      }
+      var workers = [];
+      var count = Math.min(3, unlocated.length);
+      for (var i = 0; i < count; i += 1) workers.push(worker());
+      return Promise.all(workers).then(function () {
+        if (failed.length) {
+          var names = failed.slice(0, 4).map(function (item) {
+            return item.task.shopName || ('任务' + (item.task.seq || ''));
+          }).join('、');
+          if (failed.length > 4) names += ' 等';
+          toast('派车前高德定位：成功 ' + success.length + ' 个，失败 ' + failed.length + ' 个：' + names + '。失败项将用离线估算继续排线', 'warn');
+        } else if (success.length) {
+          var coarse = success.filter(function (item) {
+            return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(item.level) >= 0;
+          }).length;
+          if (coarse) {
+            toast('派车前已自动定位 ' + success.length + ' 个，其中 ' + coarse + ' 个为道路/区域级，建议核对', 'warn');
+          }
+        }
+      });
     }).then(function () {
       var latest = Store.getState();
       var vehicles = activeVehicles(latest);

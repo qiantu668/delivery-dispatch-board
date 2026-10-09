@@ -567,7 +567,18 @@
         if (index >= candidates.length) {
           return searchAmapPoi(candidates[0]).catch(function (err) {
             var detail = lastError || (err && err.message) || '未找到';
-            throw new Error('高德未找到地址：' + address + '（' + detail + '）');
+            var fallback = null;
+            try {
+              fallback = roughGeocode(address);
+            } catch (roughErr) {
+              throw new Error('高德未找到地址：' + address + '（' + detail + '）');
+            }
+            fallback.formatted = address;
+            fallback.level = '离线估算';
+            fallback.district = '';
+            fallback.fallback = true;
+            fallback.reason = '高德未找到地址：' + detail;
+            return fallback;
           });
         }
         return geocodeWithAmap(candidates[index]).catch(function (err) {
@@ -642,7 +653,14 @@
 
   function routeLegs(points) {
     if (!Array.isArray(points) || points.length < 2) return Promise.resolve([]);
-    if (service.mode === 'amap') return routeLegsAmap(points);
+    if (service.mode === 'amap') {
+      return routeLegsAmap(points).catch(function () {
+        return routeLegsDemo(points).map(function (leg) {
+          leg.fallback = true;
+          return leg;
+        });
+      });
+    }
     return Promise.resolve(routeLegsDemo(points));
   }
 
@@ -659,7 +677,10 @@
         var timer = setTimeout(function () {
           if (settled) return;
           settled = true;
-          reject(new Error('高德路径规划超时：第 ' + (legIndex + 1) + ' 段'));
+          resolve(Object.assign(demoLeg(fromPoint, toPoint, legIndex), {
+            fallback: true,
+            fallbackReason: '高德路径规划超时'
+          }));
         }, AMAP_ROUTE_TIMEOUT);
         driver.search(from, to, function (status, result) {
           if (settled) return;
@@ -679,7 +700,10 @@
             });
           } else {
             var info = result && (result.info || result.message);
-            reject(new Error('高德路径规划失败：第 ' + (legIndex + 1) + ' 段' + (info ? '（' + info + '）' : '')));
+            resolve(Object.assign(demoLeg(fromPoint, toPoint, legIndex), {
+              fallback: true,
+              fallbackReason: '高德路径规划失败' + (info ? '（' + info + '）' : '')
+            }));
           }
         });
         }));
@@ -694,19 +718,21 @@
     });
   }
 
+  function demoLeg(a, b, index) {
+    var straight = haversineM(a, b);
+    var dist = straight * ROAD_FACTOR;
+    return {
+      distanceM: Math.round(dist),
+      durationMin: Math.max(1, Math.round(dist / 1000 / AVG_SPEED * 60 * OFFLINE_TIME_BUFFER)),
+      path: curvePath(a, b, index)
+    };
+  }
+
   function routeLegsDemo(points) {
     if (!Array.isArray(points) || points.length < 2) return [];
     var legs = [];
     for (var i = 0; i < points.length - 1; i++) {
-      var a = points[i];
-      var b = points[i + 1];
-      var straight = haversineM(a, b);
-      var dist = straight * ROAD_FACTOR;
-      legs.push({
-      distanceM: Math.round(dist),
-      durationMin: Math.max(1, Math.round(dist / 1000 / AVG_SPEED * 60 * OFFLINE_TIME_BUFFER)),
-      path: curvePath(a, b, i)
-      });
+      legs.push(demoLeg(points[i], points[i + 1], i));
     }
     return legs;
   }

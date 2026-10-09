@@ -222,7 +222,7 @@
 
   function taskRow(task) {
     var missingAddress = (task.lng == null || task.lat == null) && !(task.address || '').trim();
-    var coarseLevels = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'];
+    var coarseLevels = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路', '离线估算'];
     var coarse = task.lng != null && coarseLevels.indexOf(task.locLevel) >= 0;
     var locClass = task.lng != null ? (coarse ? 'loc-chip is-warn' : 'loc-chip is-ok') : (missingAddress ? 'loc-chip is-empty is-missing' : 'loc-chip is-empty');
     var locText = task.lng != null ? (coarse ? '粗略定位，请核对' : '已定位') : (missingAddress ? '缺地址' : '未定位');
@@ -1578,7 +1578,7 @@
     btn.classList.add('is-loading');
     Geo.geocode(address).then(function (loc) {
       Store.updateTask(id, { lng: loc.lng, lat: loc.lat, locLevel: loc.level || '', locSource: 'amap' });
-      var coarse = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(loc.level) >= 0;
+      var coarse = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路', '离线估算'].indexOf(loc.level) >= 0;
       toast(coarse ? '定位成功，但只到道路/区域级，建议核对' : '定位成功', coarse ? 'warn' : 'success');
     }).catch(function (err) {
       btn.disabled = false;
@@ -1639,7 +1639,7 @@
       locateAllBusy = false;
       renderApp();
       var coarseCount = success.filter(function (item) {
-        return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(item.level) >= 0;
+        return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路', '离线估算'].indexOf(item.level) >= 0;
       }).length;
       if (!failed.length) {
         toast('一键定位完成：成功 ' + success.length + ' 个' + (coarseCount ? '，其中 ' + coarseCount + ' 个仅道路/区域级，请核对' : ''), coarseCount ? 'warn' : 'success');
@@ -1755,7 +1755,7 @@
           toast('派车前高德定位：成功 ' + success.length + ' 个，失败 ' + failed.length + ' 个：' + names + '。失败项将用离线估算继续排线', 'warn');
         } else if (success.length) {
           var coarse = success.filter(function (item) {
-            return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路'].indexOf(item.level) >= 0;
+            return ['省', '市', '城市', '区县', '乡镇', '村庄', '道路', '离线估算'].indexOf(item.level) >= 0;
           }).length;
           if (coarse) {
             toast('派车前已自动定位 ' + success.length + ' 个，其中 ' + coarse + ' 个为道路/区域级，建议核对', 'warn');
@@ -1894,9 +1894,13 @@
     var routes = Planning.solveSmartRoutes(solverOpts);
     routes = routes.filter(function (r) { return r.stops.length; });
     if (!routes.length) throw new Error('任务无法分配');
+    var fallbackLegs = 0;
     return routes.reduce(function (p, r) {
       return p.then(function () {
-        return Geo.routeLegs(routePoints(ctx, r)).then(function (legs) { r.legs = legs; });
+        return Geo.routeLegs(routePoints(ctx, r)).then(function (legs) {
+          (legs || []).forEach(function (leg) { if (leg.fallback) fallbackLegs += 1; });
+          r.legs = legs;
+        });
       });
     }, Promise.resolve()).then(function () {
       var result = Planning.applyRealLegs({ routes: routes }, {
@@ -1906,7 +1910,11 @@
       });
       result.generatedAt = new Date().toISOString();
       Store.setResult(result);
-      toast('离线均衡派车完成', 'success');
+      if (fallbackLegs) {
+        toast('派车完成，其中 ' + fallbackLegs + ' 段高德路径不可用，已用离线估算继续排线', 'warn');
+      } else {
+        toast('派车完成', 'success');
+      }
     });
   }
 

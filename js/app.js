@@ -1577,7 +1577,7 @@
     btn.disabled = true;
     btn.classList.add('is-loading');
     Geo.geocode(address).then(function (loc) {
-      Store.updateTask(id, { lng: loc.lng, lat: loc.lat, locLevel: loc.level || '', locSource: 'amap' });
+      Store.updateTask(id, { lng: loc.lng, lat: loc.lat, locLevel: loc.level || '', locSource: loc.fallback ? 'offline' : 'amap' });
       var coarse = ['省', '市', '城市', '区县', '乡镇', '村庄', '道路', '离线估算'].indexOf(loc.level) >= 0;
       toast(coarse ? '定位成功，但只到道路/区域级，建议核对' : '定位成功', coarse ? 'warn' : 'success');
     }).catch(function (err) {
@@ -1621,7 +1621,7 @@
           lng: loc.lng,
           lat: loc.lat,
           locLevel: loc.level || '',
-          locSource: 'amap'
+          locSource: loc.fallback ? 'offline' : 'amap'
         });
         success.push({ task: task, level: loc.level || '' });
       }).catch(function (err) {
@@ -1736,7 +1736,7 @@
           task.lng = loc.lng;
           task.lat = loc.lat;
           task.locLevel = loc.level || '';
-          task.locSource = 'amap';
+          task.locSource = loc.fallback ? 'offline' : 'amap';
           Store.updateTask(task.id, { lng: task.lng, lat: task.lat, locLevel: task.locLevel, locSource: task.locSource });
           success.push({ task: task, level: loc.level || '' });
         }).catch(function (err) {

@@ -427,7 +427,7 @@
     m = t.match(/[^ ]{1,15}(?:区|县)[^号弄幢栋楼室]{0,60}?(?:\d+号|\d+弄|\d+幢|\d+栋|\d+楼|\d+室)/);
     if (m) return m[0].replace(/\s{2,}/g, ' ').trim();
 
-    m = t.match(/[^ ]{1,20}(?:路|街|大道|大街|弄|巷|道)\s*\d+号?/);
+    m = t.match(/[^ ]{1,20}(?:路|街|大道|大街|弄|巷|道)\s*\d+(?:号|弄|幢|栋|楼|室)/);
     if (m) {
       var roadPart = m[0];
       var idx = t.indexOf(roadPart);
@@ -448,6 +448,42 @@
     t = t.replace(/[，,、]/g, ' ').replace(/\s{2,}/g, ' ').trim();
     return t;
   }
+
+  function administrativePrefix(text) {
+    var t = String(text || '').trim();
+    var district = t.match(/(?:上海市)?([^ ]{1,10}(?:区|县))/);
+    return '上海市' + (district ? district[1] : '');
+  }
+
+  function extractRoadLevelAddress(text) {
+    var t = cleanAddressForGeocode(text);
+    if (!t) return '';
+    var cut = Math.max(
+      t.lastIndexOf('区'),
+      t.lastIndexOf('县'),
+      t.lastIndexOf('镇'),
+      t.lastIndexOf('街道')
+    );
+    var tail = cut >= 0 ? t.slice(cut + 1) : t;
+    var road = tail.match(/^([^0-9弄号幢栋楼室\s]{1,20}(?:公路|大道|大街|支路|路|街|巷|道))/);
+    return road ? administrativePrefix(t) + road[1] : '';
+  }
+
+  function extractTownLevelAddress(text) {
+    var t = cleanAddressForGeocode(text);
+    if (!t) return '';
+    var district = t.match(/(?:上海市)?([^ ]{1,10}(?:区|县))/);
+    var tail = district ? t.slice(t.indexOf(district[0]) + district[0].length) : t;
+    var town = tail.match(/^([^ ]{1,12}(?:镇|街道|新区))/);
+    return town ? administrativePrefix(t) + town[1] : '';
+  }
+
+  function extractDistrictLevelAddress(text) {
+    var t = cleanAddressForGeocode(text);
+    var district = t.match(/(?:上海市)?([^ ]{1,10}(?:区|县))/);
+    return district ? '上海市' + district[1] : '';
+  }
+
   function addressCandidates(address) {
     var raw = String(address || '').trim();
     var normalized = normalizeAddressText(raw);
@@ -471,7 +507,10 @@
         add('上海市' + c);
       }
     });
-    return candidates.slice(0, 5);
+    add(extractRoadLevelAddress(raw));
+    add(extractTownLevelAddress(raw));
+    add(extractDistrictLevelAddress(raw));
+    return candidates.slice(0, 8);
   }
 
   function formatAmapLocation(location) {
@@ -615,9 +654,18 @@
       lat: round6(region.lat + latOffset),
       formatted: address,
       rough: true,
-      level: region.level || 'district',
+      fallback: true,
+      level: region.level || inferRegionLevel(region.label),
       source: region.label
     };
+  }
+
+  function inferRegionLevel(label) {
+    var value = String(label || '');
+    if (/(?:公路|大道|大街|支路|路|街|巷|道)$/.test(value)) return '道路';
+    if (/(?:镇|街道|新区)$/.test(value)) return '乡镇';
+    if (/(?:区|县)$/.test(value)) return '区县';
+    return '城市';
   }
 
   function matchRoughRegion(address) {
@@ -626,7 +674,7 @@
     ROUGH_REGIONS.forEach(function (r) {
       r.keys.forEach(function (key) {
         if (text.indexOf(key) < 0) return;
-        var score = key.length;
+        var score = regionKeyScore(key);
         if (!best || score > best.score) {
           best = {
             score: score,
@@ -635,7 +683,7 @@
             lat: r.lat,
             radiusLng: r.radiusLng,
             radiusLat: r.radiusLat,
-            level: r.level || 'district'
+            level: r.level || inferRegionLevel(key)
           };
         }
       });
@@ -649,6 +697,15 @@
       level: 'city',
       unsupported: /北京|天津|重庆|广州|深圳|东莞|佛山|广东|江苏|浙江|苏州|杭州|南京|无锡|常州|宁波|合肥|武汉|成都|西安/.test(text)
     };
+  }
+
+  function regionKeyScore(key) {
+    var value = String(key || '');
+    var score = value.length;
+    if (/(?:公路|大道|大街|支路|路|街|巷|道)$/.test(value)) score += 100;
+    else if (/(?:镇|街道|新区)$/.test(value)) score += 70;
+    else if (/(?:区|县)$/.test(value)) score += 20;
+    return score;
   }
 
   function routeLegs(points) {
